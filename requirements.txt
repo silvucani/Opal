@@ -1,0 +1,10 @@
+# SD-WAN VeloCloud Audit — Dependencies
+
+# Core audit engine (populate_db.py)
+openpyxl>=3.1.0
+
+# LLM agent (llm_agent.py)
+langchain>=0.1.0
+langchain-openai>=0.0.5
+langchain-community>=0.0.10
+openai>=1.0.0
