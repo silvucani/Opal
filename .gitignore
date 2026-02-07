@@ -1,1 +1,22 @@
-venv
+# Environnement Python
+venv/
+__pycache__/
+*.py[cod]
+
+# IDE
+.vscode/
+.idea/
+
+# Données (IMPORTANT : On ne versionne pas les données brutes du hackathon)
+*.xlsx
+*.csv
+*.pdf
+data/
+input/
+output/
+
+# Notebooks Jupyter (optionnel, si tu fais des tests, on garde les checkpoints en local)
+.ipynb_checkpoints/
+
+# Fichiers systèmes
+.DS_Store
