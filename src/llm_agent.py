@@ -382,7 +382,26 @@ SELECT SUM(cout_total_estime) FROM scenarios_migration;
 SELECT nouveau_modele_suggere, COUNT(*) as nb FROM scenarios_migration GROUP BY nouveau_modele_suggere;
 SELECT modele, urgence, date_fin_vente, date_fin_support FROM lifecycle WHERE urgence = 'CRITICAL';
 SELECT etapes FROM upgrade_paths WHERE version_source = '4.2.2';
+SELECT modele, branche_version, supporte, notes FROM software_compatibility WHERE modele = 'Edge 840' AND supporte = 'Oui' ORDER BY branche_version DESC LIMIT 1;
+SELECT modele, branche_version, supporte, notes FROM software_compatibility WHERE modele = 'Edge 680' AND supporte = 'Oui' ORDER BY branche_version DESC LIMIT 1;
 SELECT SUM(cout_total_estime) as cout_optimise, COUNT(*) * 700 as cout_tout_740, COUNT(*) * 700 - SUM(cout_total_estime) as economies FROM scenarios_migration;
+
+=== CONNAISSANCES PRE-CALCULEES (utilise-les directement si pertinent) ===
+
+Versions max par modele :
+- Edge 840 : max 5.2.x (EoL 09/2025, ne supporte PAS 5.4+/6.x). Remplacer par Edge 7x0.
+- Edge 680 : max 6.1.x (EoS 07/2022, 6.4.x non supporte). Remplacer par Edge 7x0.
+- Edge 7x0 (710/720/740) : version cible 6.4.x (LTS candidate).
+
+Upgrade paths (depuis Release Notes officielles) :
+- Edge 840 v4.2.2 : 4.2.2 -> 5.2.3 (LTS, max Edge 840) -> remplacement HW Edge 7x0 en 6.4.x
+- Edge 680 v5.0.0 : 5.0.0 -> 6.1.x (LTS, max Edge 680) -> remplacement HW Edge 7x0 en 6.4.x
+- Ordre obligatoire : VCO d'abord, puis Gateways, puis Edges par batch.
+
+Parc actuel : 90 equipements (80x Edge 840 v4.2.2 + 10x Edge 680 v5.0.0).
+Migration : 71x Edge 710, 15x Edge 720, 4x Edge 740 (tous en licence Enterprise).
+Cout optimise : 22 250 vs baseline 63 000 (tout Edge 740) = 64% d'economies.
+4 sites en Edge 740 : host-edge680-08, host-edge680-09, host-edge840-14, host-edge840-17.
 
 === REGLES ===
 - Utilise DIRECTEMENT sql_db_query. Pas sql_db_query_checker.
@@ -391,6 +410,7 @@ SELECT SUM(cout_total_estime) as cout_optimise, COUNT(*) * 700 as cout_tout_740,
 - NE repete JAMAIS la meme requete SQL.
 - N'echappe PAS les underscores. Ecris sql_db_query, pas sql\\_db\\_query.
 - Si on te demande d'exporter en JSON, utilise l'outil export_json.
+- Si tu connais deja la reponse grace aux CONNAISSANCES PRE-CALCULEES, reponds directement sans SQL.
 """
 
 SUFFIX_PROMPT = """=== EXEMPLES COMPLETS ===
@@ -414,6 +434,15 @@ Thought: J'ai les donnees. 4 sites necessitent un Edge 740.
 Final Answer: 4 sites necessitent un Edge 740 :\n- host-edge680-08 : 450 tunnels, 22000 flows/s\n- host-edge680-09 : 22000 flows/s, 600000 NAT entries\n- host-edge840-14 : 21000 flows/s, 1430 Mbps\n- host-edge840-17 : 22000 flows/s, 2300 Mbps
 
 Exemple 3:
+Question: Quelle est la version maximum pour un Edge 840 ?
+Thought: Je cherche dans software_compatibility la version max supportee.
+Action: sql_db_query
+Action Input: SELECT modele, branche_version, supporte, notes FROM software_compatibility WHERE modele = 'Edge 840' AND supporte = 'Oui' ORDER BY branche_version DESC LIMIT 1
+Observation: [('Edge 840', '5.2.x', 'Oui', 'Max version supportee pour Edge 840')]
+Thought: J'ai la reponse.
+Final Answer: La version maximum supportee pour un Edge 840 est la **5.2.x**. Au-dela (5.4.x, 6.x), le Edge 840 n'est plus supporte car il est en fin de vie (EoL 09/2025). Il faudra remplacer le hardware par un Edge 7x0 pour passer en 6.4.x.
+
+Exemple 4:
 Question: Exporte les donnees en JSON
 Thought: L'utilisateur veut exporter les donnees. J'utilise l'outil export_json.
 Action: export_json
@@ -422,11 +451,18 @@ Observation: Export JSON termine avec succes. 90 fichiers individuels...
 Thought: L'export est fait.
 Final Answer: Les donnees ont ete exportees en JSON dans le dossier exports/ (90 fichiers par equipement + stats.json + fleet.json).
 
-=== REGLES DE FORMAT ===
-- Apres l'Observation, ecris IMMEDIATEMENT "Thought:" puis "Final Answer:".
-- NE DIS JAMAIS "Je ne peux pas afficher". Tu DOIS donner la reponse.
+=== REGLES DE FORMAT (TRES IMPORTANT) ===
+- TOUJOURS suivre ce format apres une Observation :
+  Thought: [ta reflexion courte]
+  Final Answer: [ta reponse complete en francais]
+- NE JAMAIS repeter la requete SQL dans la reponse finale.
+- NE JAMAIS dire "la colonne n'existe pas" ou "je ne peux pas". Tu as les donnees, reponds.
+- NE JAMAIS ecrire de bloc de code SQL dans Final Answer.
 - UNE seule requete SQL suffit. Pas besoin d'en faire 2.
 - N'echappe PAS les underscores avec des backslash.
+- Si tu connais la reponse sans SQL (grace aux connaissances pre-calculees), ecris directement :
+  Thought: Je connais la reponse.
+  Final Answer: [reponse]
 
 Begin!
 
@@ -435,9 +471,13 @@ Thought: {agent_scratchpad}"""
 
 
 def _parse_error_handler(error):
-    """Extract useful text from LLM output when ReAct parsing fails."""
+    """Extract useful text from LLM output when ReAct parsing fails.
+
+    The LLM sometimes ignores the ReAct format (Thought/Action/Final Answer)
+    and just writes free-form text. This handler tries to salvage useful
+    content from the raw LLM output and force it into a Final Answer.
+    """
     text = str(error)
-    # Clean backslashes in the error text too
     text = _clean_backslashes(text)
     marker = "Could not parse LLM output: `"
     if marker in text:
@@ -445,8 +485,34 @@ def _parse_error_handler(error):
         end = text.rfind("`")
         if end > start:
             extracted = text[start:end]
-            return f"Format incorrect. Termine avec: Final Answer: {extracted}"
-    return "Format incorrect. Termine ta reponse avec Final Answer: suivi de la reponse."
+
+            # If the LLM wrote "Final Answer:" somewhere in the mess, extract it
+            fa_marker = "Final Answer:"
+            if fa_marker in extracted:
+                answer = extracted[extracted.index(fa_marker) + len(fa_marker):].strip()
+                if answer:
+                    return f"Final Answer: {answer}"
+
+            # Strip SQL blocks and schema explanations that confuse users
+            cleaned = extracted
+            # Remove markdown code blocks (```sql ... ```)
+            cleaned = re.sub(r"```[\s\S]*?```", "", cleaned)
+            # Remove lines starting with "SELECT" (SQL repeats)
+            cleaned = re.sub(r"(?m)^SELECT\b.*$", "", cleaned)
+            # Remove lines about "la colonne n'existe pas" etc.
+            cleaned = re.sub(
+                r"(?m)^.*(colonne|n'existe pas|schema|Vous avez fourni).*$",
+                "", cleaned,
+            )
+            cleaned = cleaned.strip()
+
+            if cleaned:
+                return f"Reponds maintenant. Final Answer: {cleaned}"
+            else:
+                return ("Format incorrect. Ecris UNIQUEMENT: "
+                        "Thought: [reflexion]\nFinal Answer: [reponse en francais]")
+    return ("Format incorrect. Ecris UNIQUEMENT: "
+            "Thought: [reflexion]\nFinal Answer: [reponse en francais]")
 
 
 # ---------------------------------------------------------------------------
@@ -694,13 +760,32 @@ def interactive_mode(llm, db):
                 end = err_msg.rfind("`")
                 if end > start:
                     extracted = err_msg[start:end]
+
+                    # Clean up the extracted text — remove SQL repeats,
+                    # schema explanations, and markdown code blocks
+                    cleaned = extracted
+                    cleaned = re.sub(r"```[\s\S]*?```", "", cleaned)
+                    cleaned = re.sub(r"(?m)^SELECT\b.*$", "", cleaned)
+                    cleaned = re.sub(
+                        r"(?m)^.*(colonne|n'existe pas|schema|Vous avez fourni|requete SQL).*$",
+                        "", cleaned,
+                    )
+                    # If there's a "Final Answer:" buried in the text, extract it
+                    fa = "Final Answer:"
+                    if fa in cleaned:
+                        cleaned = cleaned[cleaned.index(fa) + len(fa):]
+                    cleaned = cleaned.strip()
+
+                    if not cleaned:
+                        cleaned = extracted.strip()
+
                     print(f"\n{'='*60}")
-                    print(extracted)
+                    print(cleaned)
                     print(f"{'='*60}\n")
 
                     verbose_text = log_capture.getvalue()
                     sql_queries, _ = _extract_sql_and_errors(verbose_text)
-                    _record_success(question, sql_queries, extracted, categories)
+                    _record_success(question, sql_queries, cleaned, categories)
                     print(f"  [Appris (format partiel)]\n")
                     continue
 

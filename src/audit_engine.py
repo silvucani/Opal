@@ -149,6 +149,12 @@ def determine_target_model(device: DeviceRecord) -> tuple:
 
     # Check if Edge 720 is required
     needs_720 = False
+    # NOTE BUG 2 (audit) : Edge 840-53 et 840-54 ont 2 SFP mais faible debit
+    # (24/22 Mbps). Le PDF expert suggerait Edge 710 30M (recablage RJ45 possible).
+    # On conserve la regle stricte 2 SFP → Edge 720 car :
+    #   - Le recablage SFP→RJ45 n'est pas garanti sur tous les sites
+    #   - Edge 720 offre une marge de securite pour l'evolutivite
+    #   - Difference de cout faible (350 vs 200 par equipement, 2 sites seulement)
     if device.sfp_ports >= 2:
         needs_720 = True
         causes.append("SFP")
@@ -221,28 +227,92 @@ def determine_license_tier() -> str:
 # ---------------------------------------------------------------------------
 # Software upgrade path
 # ---------------------------------------------------------------------------
+#
+# Sources (Release Notes officielles) :
+#   - RN 5.2.3 : "An Edge can be upgraded directly to Release 5.2.3
+#                  from any Release 4.x or later"
+#   - RN 6.4.0 : "An Edge can be upgraded directly to Release 6.4.0
+#                  from Release 4.5.x or later"
+#
+# Chemin conservateur via jalons LTS pour la fiabilité :
+#   4.2.2 → 5.2.3 (LTS) → 6.1.x (LTS) → 6.4.x   (3 sauts)
 
 _UPGRADE_PATHS = {
-    "4.2.2": "4.2.2 -> 4.5.2 -> 5.0.x -> 5.4.x -> 6.1.x -> 6.4.x",
-    "4.5.2": "4.5.2 -> 5.0.x -> 5.4.x -> 6.1.x -> 6.4.x",
-    "5.0":   "5.0.x -> 5.4.x -> 6.1.x -> 6.4.x",
-    "5.4":   "5.4.x -> 6.1.x -> 6.4.x",
-    "6.0":   "6.0.x -> 6.1.x -> 6.4.x",
-    "6.1":   "6.1.x -> 6.4.x",
+    "4.2.2": "4.2.2 -> 5.2.3 (LTS) -> 6.1.x (LTS) -> 6.4.x",
+    "4.5":   "4.5.x -> 5.2.3 (LTS) -> 6.1.x (LTS) -> 6.4.x",
+    "5.0":   "5.0.x -> 6.4.x",            # direct (RN 6.4.0 : 4.5+ accepte)
+    "5.2":   "5.2.x -> 6.4.x",            # direct
+    "5.4":   "5.4.x -> 6.4.x",            # direct
+    "6.0":   "6.0.x -> 6.4.x",            # direct
+    "6.1":   "6.1.x -> 6.4.x",            # direct
+}
+
+# ---------------------------------------------------------------------------
+# BUG 3 fix — Version logicielle max par modele legacy
+# ---------------------------------------------------------------------------
+# Edge 840 est EoL depuis 09/2025 : ne supporte PAS au-dela de 5.2.x
+# Edge 680 est EoS : supporte jusqu'a 6.1.x max (6.4.x = Non dans la matrice)
+# Le sujet dit : "Priorite aux upgrades SW car rapides des signature du contrat.
+#                 Remplacement HW dans un second temps."
+# Donc : upgrade SW temporaire au max du modele → puis remplacement HW Edge 7x0
+
+_MODEL_SW_CEILING = {
+    "Edge 840":  "5.2.x",
+    "Edge 500":  "5.2.x",
+    "Edge 1000": "5.2.x",
+    "Edge 2000": "5.2.x",
+    "Edge 680":  "6.1.x",
+    "Edge 640":  "6.1.x",
+    "Edge 620":  "6.1.x",
+    "Edge 610":  "6.1.x",
+    "Edge 510":  "6.1.x",
+    "Edge 520":  "6.1.x",
+    "Edge 540":  "6.1.x",
 }
 
 
-def compute_upgrade_path(current_version: str) -> str:
-    """Compute the stepped upgrade path from current version to 6.4.x."""
+def compute_upgrade_path(current_version: str, model: str = "") -> str:
+    """Compute the stepped upgrade path from current version.
+
+    Takes into account hardware limitations per model:
+    - Edge 840/500/1000/2000 : max 5.2.x → then HW replacement by Edge 7x0 on 6.4.x
+    - Edge 680/640/6xx/5xx   : max 6.1.x → then HW replacement by Edge 7x0 on 6.4.x
+    - Edge 7x0 / unknown     : full path to 6.4.x (no ceiling)
+    """
+    normalized = _normalize_model(model) if model else ""
+    ceiling = _MODEL_SW_CEILING.get(normalized)
+
+    if ceiling == "5.2.x":
+        # Models capped at 5.2.x (Edge 840, 500, 1000, 2000)
+        if current_version.startswith("4."):
+            return (f"{current_version} -> 5.2.3 (LTS, max {normalized})"
+                    f" -> remplacement HW Edge 7x0 en 6.4.x")
+        if current_version.startswith("5.0"):
+            return (f"5.0.x -> 5.2.3 (LTS, max {normalized})"
+                    f" -> remplacement HW Edge 7x0 en 6.4.x")
+        return (f"{current_version} (deja au max {normalized})"
+                f" -> remplacement HW Edge 7x0 en 6.4.x")
+
+    if ceiling == "6.1.x":
+        # Models capped at 6.1.x (Edge 680, 640, 6xx, 5xx)
+        if current_version.startswith("4."):
+            return (f"{current_version} -> 5.2.3 (LTS) -> 6.1.x (LTS, max {normalized})"
+                    f" -> remplacement HW Edge 7x0 en 6.4.x")
+        if current_version.startswith("5."):
+            return (f"{current_version} -> 6.1.x (LTS, max {normalized})"
+                    f" -> remplacement HW Edge 7x0 en 6.4.x")
+        return (f"{current_version} (deja au max {normalized})"
+                f" -> remplacement HW Edge 7x0 en 6.4.x")
+
+    # No ceiling — model supports 6.4.x (Edge 7x0, or no model specified)
     if current_version in _UPGRADE_PATHS:
         return _UPGRADE_PATHS[current_version]
-    # Try matching major.minor prefix
     parts = current_version.split(".")
     if len(parts) >= 2:
         prefix = f"{parts[0]}.{parts[1]}"
         if prefix in _UPGRADE_PATHS:
             return _UPGRADE_PATHS[prefix]
-    return f"{current_version} -> 6.4.x (path to verify manually)"
+    return f"{current_version} -> 6.4.x (chemin a verifier manuellement)"
 
 
 # ---------------------------------------------------------------------------
@@ -286,7 +356,7 @@ def build_migration_scenario(device: DeviceRecord) -> AuditResult:
     target_model, cause = determine_target_model(device)
     bw_tier = determine_bandwidth_tier(target_model, device.throughput_mbps)
     license_tier = determine_license_tier()
-    upgrade_path = compute_upgrade_path(device.version)
+    upgrade_path = compute_upgrade_path(device.version, device.model)
     cost = compute_cost(target_model, license_tier)
     complexity = assess_complexity(device, target_model)
 
@@ -356,7 +426,9 @@ def format_summary(results: tuple) -> str:
         "Software migration:",
         "  Phase 0: Upgrade VCO (Orchestrator) to 6.4.x",
         "  Phase 1: Upgrade VCG (Gateways) to 6.4.x",
-        "  Phase 2: Upgrade Edges in batches (4.2.2 -> 4.5.2 -> 5.0.x -> 5.4.x -> 6.1.x -> 6.4.x)",
+        "  Phase 2: Edge 840 — upgrade SW a 5.2.3 (max) puis remplacement HW par Edge 7x0",
+        "  Phase 3: Edge 680 — upgrade SW a 6.1.x (max) puis remplacement HW par Edge 7x0",
+        "  Phase 4: Edge 7x0 — deployes directement en 6.4.x",
         "=" * 70,
     ])
     return "\n".join(lines)

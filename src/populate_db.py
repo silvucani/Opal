@@ -92,16 +92,27 @@ SOFTWARE_COMPAT = (
 
 UPGRADE_PATHS = (
     # (from_version, to_version, steps, order_notes)
-    ("4.2.2", "6.4.x", "4.2.2 → 4.5.2 → 5.0.x → 5.4.x → 6.1.x → 6.4.x",
-     "Ordre obligatoire : VCO d'abord, puis Gateways, puis Edges par batch"),
-    ("4.5.2", "6.4.x", "4.5.2 → 5.0.x → 5.4.x → 6.1.x → 6.4.x",
-     "Ordre obligatoire : VCO d'abord, puis Gateways, puis Edges par batch"),
-    ("5.0.0", "6.4.x", "5.0.x → 5.4.x → 6.1.x → 6.4.x",
-     "Ordre obligatoire : VCO d'abord, puis Gateways, puis Edges par batch"),
-    ("5.4.x", "6.4.x", "5.4.x → 6.1.x → 6.4.x",
-     "Ordre obligatoire : VCO d'abord, puis Gateways, puis Edges par batch"),
-    ("6.1.x", "6.4.x", "6.1.x → 6.4.x",
-     "Upgrade direct possible. VCO d'abord, puis Gateways, puis Edges"),
+    # Sources RN : 5.2.3 accepte 4.x+, 6.4.0 accepte 4.5.x+
+    ("4.2.2", "6.4.x",
+     "4.2.2 → 5.2.3 (LTS) → 6.1.x (LTS) → 6.4.x",
+     "Ordre obligatoire : VCO → Gateways → Edges. "
+     "Edge 840 : max 5.2.3 puis remplacement HW. Edge 680 : max 6.1.x puis remplacement HW."),
+    ("4.5.x", "6.4.x",
+     "4.5.x → 5.2.3 (LTS) → 6.1.x (LTS) → 6.4.x",
+     "Ordre obligatoire : VCO → Gateways → Edges."),
+    ("5.0.0", "6.4.x",
+     "5.0.x → 6.4.x (direct, RN 6.4.0 accepte 4.5+)",
+     "Ordre obligatoire : VCO → Gateways → Edges. "
+     "Edge 680 : max 6.1.x puis remplacement HW."),
+    ("5.2.x", "6.4.x",
+     "5.2.x → 6.4.x (direct)",
+     "Upgrade direct possible. VCO → Gateways → Edges."),
+    ("5.4.x", "6.4.x",
+     "5.4.x → 6.4.x (direct)",
+     "Upgrade direct possible. VCO → Gateways → Edges."),
+    ("6.1.x", "6.4.x",
+     "6.1.x → 6.4.x (direct)",
+     "Upgrade direct possible. VCO → Gateways → Edges."),
 )
 
 

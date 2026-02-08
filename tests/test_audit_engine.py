@@ -227,29 +227,74 @@ class TestLicenseTier(unittest.TestCase):
 
 
 class TestUpgradePath(unittest.TestCase):
-    def test_version_422(self):
+    """Tests upgrade paths — updated per audit BUG 1 + BUG 3.
+
+    Sources Release Notes :
+      - RN 5.2.3 : 'from any Release 4.x or later' (direct)
+      - RN 6.4.0 : 'from Release 4.5.x or later' (direct)
+    Conservative path via LTS : 4.2.2 → 5.2.3 → 6.1.x → 6.4.x (3 sauts)
+    """
+
+    # --- Generic paths (no model = no ceiling, full path to 6.4.x) ---
+
+    def test_generic_422(self):
         path = compute_upgrade_path("4.2.2")
-        self.assertEqual(path, "4.2.2 -> 4.5.2 -> 5.0.x -> 5.4.x -> 6.1.x -> 6.4.x")
+        self.assertEqual(path, "4.2.2 -> 5.2.3 (LTS) -> 6.1.x (LTS) -> 6.4.x")
 
-    def test_version_452(self):
+    def test_generic_452(self):
         path = compute_upgrade_path("4.5.2")
-        self.assertEqual(path, "4.5.2 -> 5.0.x -> 5.4.x -> 6.1.x -> 6.4.x")
+        self.assertEqual(path, "4.5.x -> 5.2.3 (LTS) -> 6.1.x (LTS) -> 6.4.x")
 
-    def test_version_50x(self):
+    def test_generic_50x(self):
         path = compute_upgrade_path("5.0.1")
-        self.assertEqual(path, "5.0.x -> 5.4.x -> 6.1.x -> 6.4.x")
+        self.assertEqual(path, "5.0.x -> 6.4.x")
 
-    def test_version_54x(self):
+    def test_generic_54x(self):
         path = compute_upgrade_path("5.4.0")
-        self.assertEqual(path, "5.4.x -> 6.1.x -> 6.4.x")
+        self.assertEqual(path, "5.4.x -> 6.4.x")
 
-    def test_version_61x(self):
+    def test_generic_61x(self):
         path = compute_upgrade_path("6.1.2")
         self.assertEqual(path, "6.1.x -> 6.4.x")
 
     def test_unknown_version(self):
         path = compute_upgrade_path("3.0.0")
-        self.assertIn("verify manually", path)
+        self.assertIn("verifier manuellement", path)
+
+    # --- BUG 3 : Edge 840 capped at 5.2.x ---
+
+    def test_edge840_422_capped(self):
+        path = compute_upgrade_path("4.2.2", "Edge 840")
+        self.assertIn("5.2.3", path)
+        self.assertIn("max Edge 840", path)
+        self.assertIn("remplacement HW", path)
+        self.assertNotIn("6.1.x (LTS) -> 6.4.x", path)
+
+    def test_edge840_500_capped(self):
+        path = compute_upgrade_path("5.0.0", "Edge 840")
+        self.assertIn("5.2.3", path)
+        self.assertIn("max Edge 840", path)
+        self.assertIn("remplacement HW", path)
+
+    # --- BUG 3 : Edge 680 capped at 6.1.x ---
+
+    def test_edge680_500_capped(self):
+        path = compute_upgrade_path("5.0.0", "Edge 680")
+        self.assertIn("6.1.x", path)
+        self.assertIn("max Edge 680", path)
+        self.assertIn("remplacement HW", path)
+        self.assertNotIn("-> 6.4.x", path.split("remplacement")[0])
+
+    def test_edge680_normalized(self):
+        """Edge680 (no space) should also work via _normalize_model."""
+        path = compute_upgrade_path("5.0.0", "Edge680")
+        self.assertIn("max Edge 680", path)
+
+    # --- Edge 7x0 : no ceiling, full path ---
+
+    def test_edge710_no_ceiling(self):
+        path = compute_upgrade_path("5.0.0", "Edge 710")
+        self.assertEqual(path, "5.0.x -> 6.4.x")
 
 
 class TestCost(unittest.TestCase):
@@ -286,19 +331,28 @@ class TestComplexity(unittest.TestCase):
 
 class TestBuildMigrationScenario(unittest.TestCase):
     def test_returns_audit_result(self):
-        device = _make_device()
+        device = _make_device()  # Edge 840, v4.2.2
         result = build_migration_scenario(device)
         self.assertIsInstance(result, AuditResult)
         self.assertEqual(result.device, device)
         self.assertEqual(result.lifecycle.urgency, "CRITICAL")
         self.assertEqual(result.target.target_model, "Edge 710")
         self.assertEqual(result.target.license_tier, "Enterprise")
+        # BUG 3 : Edge 840 path should be capped at 5.2.x
+        self.assertIn("5.2.3", result.target.upgrade_path)
+        self.assertIn("remplacement HW", result.target.upgrade_path)
 
     def test_720_scenario(self):
         device = _make_device(sfp_ports=2, throughput_mbps=80)
         result = build_migration_scenario(device)
         self.assertEqual(result.target.target_model, "Edge 720")
         self.assertIn("SFP", result.target.cause)
+
+    def test_edge680_scenario_capped_at_61x(self):
+        device = _make_device(model="Edge 680", version="5.0.0", sfp_ports=1)
+        result = build_migration_scenario(device)
+        self.assertIn("6.1.x", result.target.upgrade_path)
+        self.assertIn("remplacement HW", result.target.upgrade_path)
 
 
 class TestAuditFleet(unittest.TestCase):
