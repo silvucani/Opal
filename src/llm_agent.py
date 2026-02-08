@@ -66,7 +66,7 @@ from langchain_core.tools import Tool
 IP_SERVEUR = "100.68.79.54"
 PORT_WEBUI = "3000"
 API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjAzMTk3NmU0LTFjMzgtNGExNC1hNDc4LWMyY2YyNDAxNTdhYSIsImV4cCI6MTc3Mjg5NTc2OCwianRpIjoiZDY1OTNkYzYtZmU1OC00Y2I1LWFiNzUtOGM1YjZmN2I2ZTkxIn0.cdjYYUoEx1bj812ZOdgVv5-uOXuH6uxRQQ9YzgDBlmw"
-MODEL_NAME = "qwen2.5-coder:7b"
+MODEL_NAME = "qwen3-fast:latest"
 
 _DB_FILE = _PROJECT_ROOT / "data" / "hackathon_sdwan_v2.db"
 _MEMORY_FILE = _PROJECT_ROOT / "data" / "llm_memory.json"
@@ -555,21 +555,39 @@ def ensure_db_populated():
 # ---------------------------------------------------------------------------
 
 def _create_llm():
-    """Create the LLM connection with backslash cleaning."""
+    """Create the LLM connection with backslash cleaning.
+
+    Performance tuning:
+    - temperature=0 : deterministic, no sampling overhead
+    - max_tokens=512 : limite la longueur de reponse (evite les divagations)
+    - streaming=False : attend la reponse complete (plus simple a parser)
+    """
     base_url = f"http://{IP_SERVEUR}:{PORT_WEBUI}/api"
     return _CleanChatOpenAI(
         base_url=base_url,
         api_key=API_KEY,
         model=MODEL_NAME,
         temperature=0,
+        max_tokens=512,
         streaming=False,
         request_timeout=120,
     )
 
 
+_INCLUDE_TABLES = [
+    "parc_actuel", "mesures_detaillees", "scenarios_migration",
+    "lifecycle", "edge_7x0_specs", "software_compatibility",
+    "upgrade_paths", "catalogue_reference",
+]
+
+
 def _create_db():
-    """Create the SQLDatabase connection."""
-    return SQLDatabase.from_uri(DB_URI)
+    """Create the SQLDatabase connection.
+
+    Performance: include_tables limits schema introspection to only
+    the tables the LLM needs, avoiding slow PRAGMA calls on irrelevant tables.
+    """
+    return SQLDatabase.from_uri(DB_URI, include_tables=_INCLUDE_TABLES)
 
 
 def _run_export(_input=""):
@@ -606,7 +624,13 @@ _EXPORT_TOOL = Tool(
 
 
 def _create_agent(llm, db, question):
-    """Create a fresh agent with dynamic context tailored to this question."""
+    """Create a fresh agent with dynamic context tailored to this question.
+
+    Performance tuning:
+    - max_iterations=4 : la plupart des questions se resolvent en 1-2 iterations.
+      8 = le LLM tourne en boucle et perd du temps sur des erreurs repetees.
+    - max_execution_time=60 : 2 min c'est trop long, 60s suffit largement.
+    """
     dynamic_context = _build_dynamic_context(question)
     full_prefix = SYSTEM_PROMPT + dynamic_context
 
@@ -620,8 +644,8 @@ def _create_agent(llm, db, question):
         suffix=SUFFIX_PROMPT,
         input_variables=["input", "agent_scratchpad"],
         extra_tools=[_EXPORT_TOOL],
-        max_iterations=8,
-        max_execution_time=120,
+        max_iterations=4,
+        max_execution_time=60,
     )
 
 
