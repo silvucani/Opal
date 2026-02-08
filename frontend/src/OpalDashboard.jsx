@@ -602,6 +602,220 @@ const UpgradeScreen = () => {
   );
 };
 
+/* ═══════════════════ CHATBOT (Ollama via Open WebUI) ═══════════════════ */
+const LLM_BASE_URL = "http://100.68.79.54:3000/api";
+const LLM_API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjAzMTk3NmU0LTFjMzgtNGExNC1hNDc4LWMyY2YyNDAxNTdhYSIsImV4cCI6MTc3Mjg5NTc2OCwianRpIjoiZDY1OTNkYzYtZmU1OC00Y2I1LWFiNzUtOGM1YjZmN2I2ZTkxIn0.cdjYYUoEx1bj812ZOdgVv5-uOXuH6uxRQQ9YzgDBlmw";
+const LLM_MODEL = "qwen2.5-coder:7b";
+
+const SYSTEM_PROMPT = `Tu es l'assistant IA du projet Opal — Orange Business × Epitech.
+Tu es expert en SD-WAN VeloCloud et tu aides les ingénieurs réseau à comprendre les chemins de migration.
+
+CONTEXTE DU PARC:
+- 90 équipements total : 80 Edge 840 (v4.2.2, End of Life) + 10 Edge 680 (v5.0.0, End of Support)
+- Migration vers Edge 7x0 : 71 → Edge 710, 15 → Edge 720, 4 → Edge 740
+- Coût optimisé : 22 250 vs 63 000 baseline = 65% d'économies
+
+UPGRADE PATHS:
+- Depuis 4.2.2 : 4.2.2 → 4.5.2 → 5.0.x → 5.4.x → 6.1.x → 6.4.x (5 étapes)
+- Depuis 5.0.0 : 5.0.x → 5.4.x → 6.1.x → 6.4.x (3 étapes)
+- Ordre obligatoire : VCO d'abord, puis Gateways, puis Edges par batch
+
+SPECS EDGE 7x0:
+- Edge 710 : 395 Mb/s IMIX, 50 tunnels, 4000 flows/s, 1 SFP, version min 5.2.2+
+- Edge 720 : 2300 Mb/s IMIX, 400 tunnels, 18000 flows/s, 2 SFP+, version min 5.2.2+
+- Edge 740 : 3500 Mb/s IMIX, 800 tunnels, 26000 flows/s, 2 SFP+, version min 5.2.2+
+
+COMPATIBILITÉ:
+- Edge 840 : max 5.2.x. Ne supporte PAS 5.4+ ni v6
+- Edge 680 : jusqu'à 6.1.x. Ne supporte pas 6.4.x
+- Edge 7x0 : 5.2.2+ à 6.4.x (version cible LTS)
+
+COÛTS: Edge 710+Ent=200, Edge 720+Ent=350, Edge 740+Ent=700
+720 vs 710 : 2+ SFP, >50 tunnels, >4000 flows/s, >395 Mb/s
+740 vs 720 : >400 tunnels, >18000 flows/s, >2300 Mb/s
+
+Réponds en français, de manière concise et technique.`;
+
+const Chatbot = () => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [messages, setMessages] = useState([
+    { role: "assistant", content: "Bonjour ! Je suis l'assistant Opal. Posez-moi vos questions sur les upgrade paths, la compatibilité logicielle, ou la migration du parc SD-WAN." }
+  ]);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  const sendMessage = async () => {
+    if (!input.trim() || loading) return;
+    const userMsg = input.trim();
+    setInput("");
+    setError(null);
+    const newMessages = [...messages, { role: "user", content: userMsg }];
+    setMessages(newMessages);
+    setLoading(true);
+
+    try {
+      const apiMessages = [
+        { role: "system", content: SYSTEM_PROMPT },
+        ...newMessages.map(m => ({ role: m.role, content: m.content })),
+      ];
+      const res = await fetch(`${LLM_BASE_URL}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${LLM_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model: LLM_MODEL,
+          messages: apiMessages,
+          temperature: 0.3,
+          max_tokens: 1000,
+        }),
+      });
+
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+
+      const data = await res.json();
+      const reply = data.choices?.[0]?.message?.content || "Pas de réponse.";
+      setMessages(prev => [...prev, { role: "assistant", content: reply }]);
+    } catch (err) {
+      setError(`Connexion impossible au LLM (${err.message}). Vérifiez que Open WebUI tourne sur ${LLM_BASE_URL} et que le VPN Tailscale est connecté.`);
+    }
+    setLoading(false);
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+  };
+
+  // Floating button
+  if (!isOpen) {
+    return (
+        <button onClick={() => setIsOpen(true)} style={{
+          position: "fixed", bottom: 24, right: 24, width: 56, height: 56, borderRadius: "50%",
+          background: "var(--orange)", border: "none", cursor: "pointer", display: "flex",
+          alignItems: "center", justifyContent: "center", boxShadow: "0 4px 20px rgba(255,121,0,0.4)",
+          transition: "transform 0.2s", zIndex: 1000,
+        }}
+                onMouseEnter={e => e.currentTarget.style.transform = "scale(1.1)"}
+                onMouseLeave={e => e.currentTarget.style.transform = "scale(1)"}>
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+          </svg>
+        </button>
+    );
+  }
+
+  return (
+      <div style={{
+        position: "fixed", bottom: 24, right: 24, width: 420, height: 560,
+        background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 16,
+        display: "flex", flexDirection: "column", overflow: "hidden",
+        boxShadow: "0 8px 40px rgba(0,0,0,0.5)", zIndex: 1000,
+      }}>
+        {/* Header */}
+        <div style={{
+          padding: "14px 18px", borderBottom: "1px solid var(--border)",
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          background: "var(--surface2)",
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{
+              width: 32, height: 32, borderRadius: "50%", background: "var(--orange)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+              </svg>
+            </div>
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 600 }}>Assistant Opal</div>
+              <div style={{ fontSize: 11, color: "var(--text3)" }}>Ollama — {LLM_MODEL}</div>
+            </div>
+          </div>
+          <button onClick={() => setIsOpen(false)} style={{
+            background: "none", border: "none", color: "var(--text3)", cursor: "pointer",
+            fontSize: 20, padding: 4, lineHeight: 1,
+          }}>✕</button>
+        </div>
+
+        {/* Messages */}
+        <div style={{
+          flex: 1, overflowY: "auto", padding: 16, display: "flex",
+          flexDirection: "column", gap: 12,
+        }}>
+          {messages.map((m, i) => (
+              <div key={i} style={{
+                display: "flex", justifyContent: m.role === "user" ? "flex-end" : "flex-start",
+              }}>
+                <div style={{
+                  maxWidth: "85%", padding: "10px 14px", borderRadius: 12, fontSize: 13,
+                  lineHeight: 1.5, whiteSpace: "pre-wrap",
+                  background: m.role === "user" ? "var(--orange)" : "var(--surface2)",
+                  color: m.role === "user" ? "#000" : "var(--text)",
+                  borderBottomRightRadius: m.role === "user" ? 4 : 12,
+                  borderBottomLeftRadius: m.role === "user" ? 12 : 4,
+                }}>
+                  {m.content}
+                </div>
+              </div>
+          ))}
+          {loading && (
+              <div style={{ display: "flex", justifyContent: "flex-start" }}>
+                <div style={{
+                  padding: "10px 14px", borderRadius: 12, background: "var(--surface2)",
+                  fontSize: 13, color: "var(--text3)", borderBottomLeftRadius: 4,
+                }}>
+                  <span style={{ animation: "pulse 1.5s infinite" }}>Réflexion en cours...</span>
+                  <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}`}</style>
+                </div>
+              </div>
+          )}
+          {error && (
+              <div style={{
+                padding: "10px 14px", borderRadius: 10, background: "var(--red-dim)",
+                color: "var(--red)", fontSize: 12, lineHeight: 1.5,
+              }}>
+                {error}
+              </div>
+          )}
+        </div>
+
+        {/* Input */}
+        <div style={{
+          padding: 12, borderTop: "1px solid var(--border)", display: "flex", gap: 8,
+        }}>
+          <input
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Poser une question sur le parc..."
+              disabled={loading}
+              style={{
+                flex: 1, padding: "10px 14px", borderRadius: 10, border: "1px solid var(--border)",
+                background: "var(--surface2)", color: "var(--text)", fontSize: 13, outline: "none",
+                fontFamily: "inherit",
+              }}
+          />
+          <button
+              onClick={sendMessage}
+              disabled={loading || !input.trim()}
+              style={{
+                padding: "10px 16px", borderRadius: 10, border: "none",
+                background: input.trim() && !loading ? "var(--orange)" : "var(--surface3)",
+                color: input.trim() && !loading ? "#000" : "var(--text3)",
+                fontWeight: 600, fontSize: 13, cursor: input.trim() && !loading ? "pointer" : "default",
+                transition: "all 0.2s", fontFamily: "inherit",
+              }}>
+            Envoyer
+          </button>
+        </div>
+      </div>
+  );
+};
+
 /* ═══════════════════ MAIN APP ═══════════════════ */
 export default function OpalDashboard() {
   const [page, setPage] = useState("overview");
@@ -644,6 +858,9 @@ export default function OpalDashboard() {
         <div style={{flex:1,padding:"32px 40px",overflowY:"auto",maxHeight:"100vh"}}>
           {screens[page]}
         </div>
+
+        {/* Chatbot flottant */}
+        <Chatbot />
       </div>
   );
 }
