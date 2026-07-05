@@ -1,6 +1,20 @@
-# 🍊 Hackathon Orange Business x Epitech — SD-WAN Optimization
+<div align="center">
 
-> **Février 2026** | Audit & migration d'un parc VeloCloud SD-WAN
+# 🍊 Opal — SD-WAN Fleet Audit & Migration Optimizer
+
+**Hackathon Orange Business × Epitech — February 2026**
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-orange.svg)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
+[![React 19](https://img.shields.io/badge/React-19-61dafb.svg)](https://react.dev/)
+[![LangChain](https://img.shields.io/badge/LangChain-0.1%2B-green.svg)](https://langchain.com/)
+[![Tests](https://img.shields.io/badge/tests-55%20passed-brightgreen.svg)](tests/)
+
+*An AI-powered audit tool that reduced SD-WAN replacement costs by 64% through real telemetry analysis.*
+
+[🇫🇷 Français](#-français) · [🇬🇧 English](#-english) · [📁 Structure](#-project-structure) · [🗄️ Database](#️-database--8-tables)
+
+</div>
 
 ---
 
@@ -81,8 +95,15 @@ Le LLM ne calcule rien — il interroge la base SQLite pré-remplie et synthéti
 │  🗄️ SQLite   │              │  🧠 LLM Local      │
 │  8 tables    │              │  Ollama via         │
 │  323 rows    │              │  Open WebUI         │
-│              │              │  Tailscale VPN 🔒   │
+│              │              │  (OpenAI-compat.)   │
 └──────────────┘              └────────────────────┘
+       │
+       ▼
+┌──────────────────────────────────────────────────────┐
+│              🌐 frontend/                            │
+│         React 19 + Recharts Dashboard                │
+│    Vue d'ensemble · Arborescence · Chatbot IA        │
+└──────────────────────────────────────────────────────┘
 ```
 
 **Flux** : Question → LLM génère du SQL → Exécute sur la DB → LLM synthétise → Réponse en français
@@ -91,39 +112,42 @@ Le LLM ne calcule rien — il interroge la base SQLite pré-remplie et synthéti
 
 ```bash
 # 1. Cloner le repo
-git clone <url> && cd sdwan-audit
+git clone https://github.com/silvucani/Opal.git && cd Opal
 
-# 2. Installer les dépendances
+# 2. Installer les dépendances Python
 pip install -r requirements.txt
 
-# 3. Remplir la base de données
+# 3. Remplir la base de données depuis l'Excel source
 python src/populate_db.py
 
-# 4. Lancer l'assistant IA
+# 4. Lancer l'assistant IA (CLI)
 python src/llm_agent.py
 
 # 5. Lancer les tests (55 tests)
 python -m pytest tests/ -v
 ```
 
+#### 🌐 Dashboard Web (optionnel)
+
+```bash
+cd frontend
+npm install
+npm run dev     # → http://localhost:5173
+```
+
 ### 🔌 Connexion au LLM
 
-| Paramètre | Valeur |
+L'agent utilise une API compatible OpenAI. Configurez votre propre instance Ollama :
+
+| Paramètre | Valeur par défaut |
 |---|---|
-| 🌐 IP | `100.68.79.54` (Tailscale VPN) |
-| 🔌 Port | `3000` |
+| 🌐 Base URL | `http://localhost:11434/v1` |
 | 🖥️ Interface | Open WebUI (Docker) |
 | ⚙️ Backend | Ollama |
-| 🤖 Modèles | `qwen2.5-coder:7b` / `mistral-nemo` |
+| 🤖 Modèles recommandés | `qwen2.5-coder:7b` / `mistral-nemo` |
 | 📡 Protocole | OpenAI-compatible API |
 
-### 🔮 Implémentations futures
-
-* 🌐 **Site web** avec arborescence interactive pour naviguer le parc
-* 📊 **Dashboard** de visualisation des coûts (camembert, barres)
-* 🗺️ **Carte** des sites avec état lifecycle (vert/orange/rouge)
-* 📅 **Timeline** de migration par phases
-* 💬 **Chat intégré** dans le navigateur
+> **Note :** Le projet a été développé avec un LLM hébergé localement via Tailscale VPN. Remplacez `base_url` dans `src/llm_agent.py` par votre propre endpoint Ollama.
 
 ---
 
@@ -173,19 +197,32 @@ The LLM computes nothing — it queries the pre-filled SQLite database and synth
 ### 🚀 Quick Start
 
 ```bash
+git clone https://github.com/silvucani/Opal.git && cd Opal
 pip install -r requirements.txt
-python src/populate_db.py     # Fill the database
-python src/llm_agent.py       # Start the AI assistant
+python src/populate_db.py     # Fill the database from Excel source
+python src/llm_agent.py       # Start the AI assistant (CLI)
 python -m pytest tests/ -v    # Run 55 unit tests
 ```
+
+#### 🌐 Web Dashboard (optional)
+
+```bash
+cd frontend && npm install && npm run dev
+# Open http://localhost:5173
+```
+
+### 🔌 Connecting your own LLM
+
+The agent uses an OpenAI-compatible API endpoint. Replace the `base_url` in `src/llm_agent.py` with your own Ollama or any other compatible LLM server URL.
 
 ---
 
 ## 📁 Project Structure
 
 ```
-sdwan-audit/
-├── 📄 readme.md
+Opal/
+├── 📄 README.md
+├── 📄 LICENSE
 ├── 📄 .gitignore
 ├── 📄 requirements.txt
 │
@@ -198,21 +235,23 @@ sdwan-audit/
 ├── 🧪 tests/                          ← Unit tests
 │   └── test_audit_engine.py           ← 55 tests for the audit engine
 │
-├── 💾 data/                            ← Input data + generated files
-│   ├── data_hackathon_extended.xlsx    ← Fleet inventory + measurements
-│   ├── hackathon_sdwan_v2.db          ← SQLite database (generated)
-│   └── llm_memory.json                ← AI memory (generated)
+├── 💾 data/                            ← Input data
+│   └── data_hackathon_extended.xlsx    ← Fleet inventory + real telemetry measurements
+│   (*.db and generated files are gitignored — run populate_db.py to create them)
 │
-├── 📚 docs/                            ← Reference documents
-│   ├── SD-WAN edges lifecycle.pdf     ← Official Arista EoS/EoL dates
-│   ├── VeloCloud-SD-WAN-Edge-7x0-Series.pdf ← Edge 7x0 specs
-│   ├── edges measured max values.pdf  ← Current fleet measurements
-│   └── release-notes/                 ← SD-WAN version release notes
+├── 🌐 frontend/                        ← React 19 web dashboard
+│   ├── index.html
+│   ├── vite.config.js
+│   ├── package.json
+│   └── src/
+│       ├── main.jsx
+│       └── OpalDashboard.jsx          ← Full dashboard: overview, network tree, AI chatbot
 │
-└── 📤 exports/                         ← Generated JSON for web frontend
-    ├── edges/                          ← 1 file per device (90 files)
-    ├── fleet.json                      ← Complete fleet array
-    └── stats.json                      ← Global statistics
+└── 📚 docs/                            ← Reference documents
+    ├── SD-WAN edges lifecycle.pdf     ← Official Arista EoS/EoL dates
+    ├── VeloCloud-SD-WAN-Edge-7x0-Series.pdf ← Edge 7x0 specs
+    ├── edges measured max values.pdf  ← Current fleet measurements
+    └── release-notes/                 ← SD-WAN version release notes
 ```
 
 ## 🗄️ Database — 8 Tables
@@ -228,14 +267,18 @@ sdwan-audit/
 | `upgrade_paths` | Step-by-step software upgrade sequences | 5 |
 | `catalogue_reference` | Hardware + license relative costs | 6 |
 
-## 🔒 Confidentiality / Confidentialité
+> The database is **not committed** to the repo. Run `python src/populate_db.py` to regenerate it from `data/data_hackathon_extended.xlsx`.
 
-* **100% local** — no data leaves the private network / aucune donnée ne quitte le réseau privé
-* LLM hosted on a physical PC, not in the cloud / LLM hébergé sur un PC physique
-* Encrypted communication via Tailscale VPN / Communication chiffrée via Tailscale
-* Network infrastructure data stays confidential / Les données d'infrastructure restent confidentielles
+## 🔒 Confidentiality
+
+* **100% local** — no data leaves your machine
+* LLM runs on your own hardware via Ollama
+* Network infrastructure data is anonymized in this public demo
+
+## 📄 License
+
+This project is licensed under the [MIT License](LICENSE).
 
 ---
 
-*🍊 Projet réalisé dans le cadre du Hackathon Orange Business x Epitech — Février 2026*
-
+*🍊 Built at the Orange Business × Epitech Hackathon — February 2026*
